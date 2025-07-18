@@ -1,0 +1,15 @@
+fastapi
+uvicorn[standard]
+sqlalchemy
+aiosqlite
+python-dotenv
+openai
+pandas
+openpyxl
+requests
+beautifulsoup4
+selenium
+sqlite-vec
+hdbscan
+numpy
+scikit-learn

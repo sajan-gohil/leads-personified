@@ -14,17 +14,13 @@ A webapp for lead enrichment and ranking.
 - Python 3.8+
 - FastAPI, SQLAlchemy, SQLite, OpenAI, pandas, openpyxl
 - Install dependencies from `backend/requirements.txt`
-- Environment variables in `backend/.env` (not committed)
+- Environment variables in `.env`
 
 ### Frontend
 - React (see `frontend/`)
 
 ## Environment Variables
-All sensitive keys and configuration are stored in `backend/.env` (not committed to git).
-
-| Variable Name      | Description                        | Example/Source                |
-|-------------------|------------------------------------|-------------------------------|
-| OPENAI_API_KEY    | OpenAI API key                     | https://platform.openai.com/  |
+All sensitive keys and configuration are stored in `.env`.
 
 - `TAVILY_API_KEY`: API key for TavilySearch. Used to search for company websites when not provided in the lead data. Obtain your API key from https://app.tavily.com/ and add it to your `.env` file.
 - `OPENAI_API_KEY`: API key for OpenAI. Used to generate buyer personas from company webpage text using GPT-4o-mini. Obtain your API key from https://platform.openai.com/ and add it to your `.env` file.

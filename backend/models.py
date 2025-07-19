@@ -24,4 +24,5 @@ class Lead(Base):
     cluster_id = Column(Integer, nullable=True)  # Cluster ID assigned by clustering algorithm
     company_name = Column(String, nullable=True)  # Company name extracted from data
     display_order = Column(Integer, nullable=True)  # Display order for persistent reranking
+    status = Column(String, nullable=True, default='unchecked')  # Lead status (unchecked, converted, failed, in-progress)
     workorder = relationship('Workorder', back_populates='leads') 

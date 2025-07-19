@@ -12,6 +12,7 @@ from fastapi.responses import JSONResponse
 from typing import List
 from app.services.lead_processing import process_lead, cluster_lead_embeddings
 import math
+import numpy as np
 
 DATABASE_URL = 'sqlite:///./workorders.db'
 UPLOAD_DIR = './uploaded_files'
@@ -122,7 +123,7 @@ def get_workorder(workorder_id: int):
         workorder = session.query(Workorder).filter(Workorder.id == workorder_id).first()
         if not workorder:
             raise HTTPException(status_code=404, detail="Workorder not found")
-        leads = session.query(Lead).filter(Lead.workorder_id == workorder_id).all()
+        leads = session.query(Lead).filter(Lead.workorder_id == workorder_id).order_by(Lead.display_order.asc().nullslast(), Lead.id.asc()).all()
         leads_data = [
             sanitize_for_json({
                 "id": lead.id,
@@ -131,6 +132,7 @@ def get_workorder(workorder_id: int):
                 "buyer_persona": lead.buyer_persona,
                 "raw_webpage_text": lead.raw_webpage_text,
                 "company_name": lead.company_name,
+                "status": lead.status or 'unchecked',
             })
             for lead in leads
         ]
@@ -148,12 +150,113 @@ def get_workorder(workorder_id: int):
 def persist_rerank(workorder_id: int, lead_ids: list = Body(...)):
     session = SessionLocal()
     try:
-        for order, lead_id in enumerate(lead_ids):
-            lead = session.query(Lead).filter(Lead.id == lead_id, Lead.workorder_id == workorder_id).first()
-            if lead:
-                lead.display_order = order
+        # Fetch all leads for this workorder
+        leads = session.query(Lead).filter(Lead.workorder_id == workorder_id).all()
+        # Separate leads by status
+        converted_leads = [lead for lead in leads if lead.status == 'converted' and lead.buyer_persona_embedding is not None]
+        failed_leads = [lead for lead in leads if lead.status == 'failed' and lead.buyer_persona_embedding is not None]
+        inprogress_leads = [lead for lead in leads if lead.status == 'in-progress' and lead.buyer_persona_embedding is not None]
+        unchecked_leads = [lead for lead in leads if (lead.status == 'unchecked' or not lead.status) and lead.buyer_persona_embedding is not None]
+
+
+        def to_np(embedding):
+            import numpy as np
+            if isinstance(embedding, (bytes, bytearray)):
+                return np.frombuffer(embedding, dtype=np.float32)
+            elif isinstance(embedding, np.ndarray):
+                return embedding
+            else:
+                return np.array(embedding, dtype=np.float32)
+
+        def cosine_similarity(a, b):
+            import numpy as np
+            if np.linalg.norm(a) == 0 or np.linalg.norm(b) == 0:
+                return 0.0
+            return float(np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b)))
+
+        # Prepare embeddings for converted
+        converted_embeddings = [(lead, to_np(lead.buyer_persona_embedding)) for lead in converted_leads]
+
+        # For each unchecked lead, compute similarity to closest converted lead
+        lead_scores = []
+        for lead in unchecked_leads:
+            emb = to_np(lead.buyer_persona_embedding)
+            if not converted_embeddings:
+                score = 0.0
+            else:
+                score = max([cosine_similarity(emb, conv_emb) for _, conv_emb in converted_embeddings])
+            lead_scores.append((lead, score))
+
+        # Sort unchecked by similarity descending
+        lead_scores.sort(key=lambda x: x[1], reverse=True)
+        sorted_unchecked = [lead for lead, _ in lead_scores]
+
+        # For converted, failed, in-progress: keep their previous display_order, sort by it
+        def by_display_order(lead):
+            return lead.display_order if lead.display_order is not None else 99999
+
+        sorted_converted = sorted(converted_leads, key=by_display_order)
+        sorted_failed = sorted(failed_leads, key=by_display_order)
+        sorted_inprogress = sorted(inprogress_leads, key=by_display_order)
+
+        # New order: unchecked first, then converted, in-progress, failed
+        new_order = sorted_unchecked + sorted_converted + sorted_inprogress + sorted_failed
+
+        # Update display_order
+        for order, lead in enumerate(new_order):
+            lead.display_order = order
         session.commit()
-        return {"success": True}
+        return {"success": True, "reranked": [{"id": lead.id, "status": lead.status, "display_order": lead.display_order} for lead in new_order]}
+    finally:
+        session.close()
+
+@app.post("/workorders/{workorder_id}/leads/{lead_id}/status")
+def update_lead_status(workorder_id: int, lead_id: int, status_data: dict = Body(...)):
+    session = SessionLocal()
+    try:
+        lead = session.query(Lead).filter(Lead.id == lead_id, Lead.workorder_id == workorder_id).first()
+        if not lead:
+            raise HTTPException(status_code=404, detail="Lead not found")
+        
+        new_status = status_data.get('status')
+        if new_status not in ['unchecked', 'converted', 'failed', 'in-progress']:
+            raise HTTPException(status_code=400, detail="Invalid status value")
+        
+        lead.status = new_status
+        session.commit()
+        return {"success": True, "lead_id": lead_id, "status": new_status}
+    except SQLAlchemyError as e:
+        session.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        session.close()
+
+@app.post("/workorders/{workorder_id}/leads/status/batch")
+def update_multiple_lead_statuses(workorder_id: int, status_updates: dict = Body(...)):
+    """Update multiple lead statuses at once"""
+    session = SessionLocal()
+    try:
+        updated_leads = []
+        for lead_index, status in status_updates.items():
+            if status not in ['unchecked', 'converted', 'failed', 'in-progress']:
+                continue
+            
+            # Find lead by workorder_id and original index position
+            leads = session.query(Lead).filter(Lead.workorder_id == workorder_id).order_by(Lead.id).all()
+            try:
+                lead_idx = int(lead_index)
+                if 0 <= lead_idx < len(leads):
+                    lead = leads[lead_idx]
+                    lead.status = status
+                    updated_leads.append({"lead_id": lead.id, "index": lead_idx, "status": status})
+            except (ValueError, IndexError):
+                continue
+        
+        session.commit()
+        return {"success": True, "updated_leads": updated_leads}
+    except SQLAlchemyError as e:
+        session.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
     finally:
         session.close()
 

@@ -28,3 +28,5 @@ This field is used to store the text content of the company website for each lea
 - **company_name** (`String`, nullable): Stores the company name for the lead, extracted from the data JSON (using 'Company' or similar key). 
 
 - **display_order** (`Integer`, nullable): Stores the persistent display order of the lead within a workorder for reranking. 
+
+- **status** (`String`, nullable): Stores the current status of the lead (unchecked, converted, failed, in-progress). Used for tracking lead processing state and enabling reranking based on user feedback. 

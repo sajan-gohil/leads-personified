@@ -32,3 +32,6 @@ ALTER TABLE leads ADD COLUMN company_name TEXT;
 
 -- Add display_order column to leads table
 ALTER TABLE leads ADD COLUMN display_order INTEGER;
+
+-- Add status column to leads table for tracking lead processing state
+ALTER TABLE leads ADD COLUMN status TEXT DEFAULT 'unchecked';

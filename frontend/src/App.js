@@ -123,23 +123,45 @@ function WorkorderDetail() {
       .catch(() => setLeads([]));
   }, [id]);
 
-  const handleStatusChange = (idx, value) => {
+  const handleStatusChange = async (idx, value) => {
     setLeadStatuses((prev) => ({ ...prev, [idx]: value }));
+    // Save status to backend for the specific lead
+    const lead = leads[idx];
+    if (!lead || !lead.id) return;
+    try {
+      await fetch(`${BACKEND_URL}/workorders/${id}/leads/${lead.id}/status`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: value }),
+      });
+    } catch (error) {
+      console.error('Failed to save lead status:', error);
+      // Optionally show an error message to the user
+    }
   };
 
   const getLeadName = (lead) => {
-    if (lead.company_name) return lead.company_name;
     if (!lead || typeof lead !== 'object') return '';
+    if (lead.company_name) return lead.company_name;
     const nameKey = Object.keys(lead.data || lead).find((k) => k.toLowerCase().includes('name'));
     return nameKey ? (lead.data || lead)[nameKey] : '';
   };
-  const getClusterId = (lead) => lead.cluster_id !== undefined ? lead.cluster_id : (lead.data && lead.data.cluster_id !== undefined ? lead.data.cluster_id : '-');
-  const getPersona = (lead) => lead.buyer_persona || (lead.data && lead.data.buyer_persona) || '';
-  const getLeadData = (lead) => lead.data || lead;
+  const getClusterId = (lead) => {
+    if (!lead) return '-';
+    return lead.cluster_id !== undefined ? lead.cluster_id : (lead.data && lead.data.cluster_id !== undefined ? lead.data.cluster_id : '-');
+  };
+  const getPersona = (lead) => {
+    if (!lead) return '';
+    return lead.buyer_persona || (lead.data && lead.data.buyer_persona) || '';
+  };
+  const getLeadData = (lead) => {
+    if (!lead) return {};
+    return lead.data || lead;
+  };
 
   // Helper to decode base64 or array string to float array (if needed)
   function parseEmbedding(lead) {
-    if (!lead.buyer_persona_embedding) return null;
+    if (!lead || !lead.buyer_persona_embedding) return null;
     // If backend returns as base64 or array string, parse accordingly
     if (Array.isArray(lead.buyer_persona_embedding)) return lead.buyer_persona_embedding;
     if (typeof lead.buyer_persona_embedding === 'string') {
@@ -152,17 +174,36 @@ function WorkorderDetail() {
     return null;
   }
 
+  // Helper to reload workorder data
+  const fetchWorkorder = async () => {
+    const res = await fetch(`${BACKEND_URL}/workorders/${id}`);
+    const data = await res.json();
+    setWorkorder(data);
+    setLeads(data.leads || []);
+    setRerankedLeads(null); // Always use backend order after fetch
+    const statuses = {};
+    (data.leads || []).forEach((lead, idx) => {
+      statuses[idx] = lead.status || 'unchecked';
+    });
+    setLeadStatuses(statuses);
+  };
+
   const handleRerank = async () => {
-    // Find indices of converted and failed leads
-    const convertedIdx = leads.map((_, i) => leadStatuses[i] === 'converted' ? i : -1).filter(i => i !== -1);
-    const failedIdx = leads.map((_, i) => leadStatuses[i] === 'failed' ? i : -1).filter(i => i !== -1);
+    // Use the currently displayed leads (leadsToShow) for reranking
+    const validLeads = leadsToShow.filter(lead => lead != null);
+    if (validLeads.length === 0) return;
+
+    // Find indices of converted and failed leads in leadsToShow
+    const convertedIdx = validLeads.map((_, i) => leadStatuses[i] === 'converted' ? i : -1).filter(i => i !== -1);
+    const failedIdx = validLeads.map((_, i) => leadStatuses[i] === 'failed' ? i : -1).filter(i => i !== -1);
     if (convertedIdx.length === 0 && failedIdx.length === 0) return;
+
     // Get embeddings
-    const embeddings = leads.map(parseEmbedding);
+    const embeddings = validLeads.map(parseEmbedding);
     // Compute similarity to closest converted and failed
-    const scores = leads.map((lead, i) => {
+    const scores = validLeads.map((lead, i) => {
       const emb = embeddings[i];
-      if (!emb) return 0;
+      if (!emb) return { idx: i, score: 0 };
       let maxConverted = -Infinity;
       let maxFailed = -Infinity;
       for (const idx of convertedIdx) {
@@ -179,24 +220,32 @@ function WorkorderDetail() {
       return { idx: i, score: (maxConverted === -Infinity ? 0 : maxConverted) - (maxFailed === -Infinity ? 0 : maxFailed) };
     });
     // Sort by score descending
-    const sorted = [...scores].sort((a, b) => b.score - a.score).map(s => leads[s.idx]);
+    const sorted = [...scores].sort((a, b) => b.score - a.score).map(s => validLeads[s.idx]).filter(lead => lead != null);
     setRerankedLeads(sorted);
-    // Persist order to backend
-    const leadIds = sorted.map(l => l.id);
-    await fetch(`${BACKEND_URL}/workorders/${id}/rerank`, {
+    // Persist order to backend using the correct lead IDs
+    const leadIds = sorted.filter(l => l && l.id).map(l => l.id);
+    const resp = await fetch(`${BACKEND_URL}/workorders/${id}/rerank`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(leadIds),
     });
+    if (resp.ok) {
+      // Only reload if the database update succeeded
+      await fetchWorkorder();
+    } else {
+      // Optionally handle error (show message, etc)
+      console.error('Rerank failed:', await resp.text());
+    }
   };
 
   // On load, sort by display_order if present
   const leadsToShow = useMemo(() => {
-    if (rerankedLeads) return rerankedLeads;
-    if (leads.some(l => l.display_order !== undefined && l.display_order !== null)) {
-      return [...leads].sort((a, b) => (a.display_order ?? 9999) - (b.display_order ?? 9999));
+    const validLeads = leads.filter(lead => lead != null);
+    if (rerankedLeads) return rerankedLeads.filter(lead => lead != null);
+    if (validLeads.some(l => l.display_order !== undefined && l.display_order !== null)) {
+      return [...validLeads].sort((a, b) => (a.display_order ?? 9999) - (b.display_order ?? 9999));
     }
-    return leads;
+    return validLeads;
   }, [leads, rerankedLeads]);
 
   return (
@@ -236,8 +285,8 @@ function WorkorderDetail() {
                 <td colSpan={6} style={{ textAlign: 'center', color: '#aaa', padding: '2rem' }}>No leads found.</td>
               </tr>
             )}
-            {leadsToShow.map((lead, idx) => (
-              <tr key={idx} style={{ borderBottom: '1px solid #f0f0f0' }}>
+            {leadsToShow.filter(lead => lead != null).map((lead, idx) => (
+              <tr key={lead?.id || idx} style={{ borderBottom: '1px solid #f0f0f0' }}>
                 <td style={{ padding: '0.75rem', color: '#222' }}>{idx + 1}</td>
                 <td style={{ padding: '0.75rem', color: '#2563eb' }}>{getLeadName(lead)}</td>
                 <td style={{ padding: '0.75rem' }}>

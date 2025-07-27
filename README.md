@@ -1,6 +1,6 @@
 # Leads Personified
 
-A webapp for lead enrichment and ranking for B2B sales. Demo: `(https://leads-personified.onrender.com/)[https://leads-personified.onrender.com/]`
+A webapp for lead enrichment and ranking for B2B sales. Demo: `[https://leads-personified.onrender.com/](https://leads-personified.onrender.com/)`
 
 ## Features
 - Upload/download Excel files with existing lead info.

@@ -1,12 +1,12 @@
 # Leads Personified
 
-A webapp for lead enrichment and ranking.
+A webapp for lead enrichment and ranking for B2B sales. Demo: `(https://leads-personified.onrender.com/)[https://leads-personified.onrender.com/]`
 
 ## Features
-- Upload/download Excel files
-- Lead enrichment and ranking (OpenAI API)
-- Local SQLite database
-- All processing in backend
+- Upload/download Excel files with existing lead info.
+- Fetch information for each company from a website in 'Website' column, or use a search agent to find it.
+- Lead enrichment by adding *lead persona* and clustering leads.
+- Ranking leads based on similarity with converted leads using text embeddings.
 
 ## Setup
 

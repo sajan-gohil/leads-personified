@@ -13,3 +13,4 @@ sqlite-vec
 hdbscan
 numpy
 scikit-learn
+python-multipart

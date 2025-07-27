@@ -28,11 +28,28 @@ app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["*"],  # In production, specify exact origins like ["https://yourfrontend.com", "http://localhost:3000"] 
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],
+    expose_headers=["*"]
 )
+
+@app.get("/")
+def root():
+    return {"message": "Leads Personified API is running", "status": "healthy"}
+
+@app.get("/health")
+def health_check():
+    return {"status": "healthy", "message": "API is running properly"}
+
+@app.options("/workorders/upload")
+def upload_options():
+    return {"message": "OK"}
+
+@app.options("/workorders/{workorder_id}")
+def workorder_options():
+    return {"message": "OK"}
 
 
 @app.get("/workorders")
@@ -60,6 +77,7 @@ def upload_workorder(file: UploadFile = File(...)):
         file_location = os.path.join(UPLOAD_DIR, file.filename)
         with open(file_location, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
+        
         # Parse file
         if file.filename.endswith('.csv'):
             df = pd.read_csv(file_location)

@@ -9,7 +9,10 @@ import {
 } from 'react-router-dom';
 import { useMemo } from 'react';
 
-const BACKEND_URL = 'http://localhost:8000';
+// Backend URL can be set via environment variable or defaults to localhost
+// Load .env
+const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
+console.log('Using backend URL:', BACKEND_URL);
 const STATUS_OPTIONS = ['unchecked', 'converted', 'failed', 'in-progress'];
 
 function WorkorderList({ onUpload, workorders, error, onWorkorderClick, uploading, showUpload, setShowUpload, selectedFile, setSelectedFile, handleUpload }) {

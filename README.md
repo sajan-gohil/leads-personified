@@ -24,6 +24,9 @@ All sensitive keys and configuration are stored in `.env`.
 
 - `TAVILY_API_KEY`: API key for TavilySearch. Used to search for company websites when not provided in the lead data. Obtain your API key from https://app.tavily.com/ and add it to your `.env` file.
 - `OPENAI_API_KEY`: API key for OpenAI. Used to generate buyer personas from company webpage text using GPT-4o-mini. Obtain your API key from https://platform.openai.com/ and add it to your `.env` file.
+- `RAZORPAY_KEY_ID`: Razorpay key ID used by the backend to create payment orders.
+- `RAZORPAY_KEY_SECRET`: Razorpay key secret used by the backend to verify payment signatures.
+- `REACT_APP_RAZORPAY_KEY_ID`: Razorpay key ID exposed to the frontend checkout (used if the backend does not return it).
 
 ## Backend Dependencies
 

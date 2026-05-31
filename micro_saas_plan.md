@@ -12,7 +12,7 @@
 - Prioritize inbound leads and SDR queues.
 - Improve MQL→SQL conversion by scoring fit + intent + engagement.
 - Account‑based prioritization (company‑level intent and relationship graph).
-- Enrichment‑first lead routing and segmentation.
+- Enrichment‑optional lead routing and segmentation (use existing enriched fields when available).
 
 ---
 
@@ -35,7 +35,9 @@ Public pricing and features frequently change; many vendors quote custom pricing
 ---
 
 ## 4) Lead enrichment sources (what data they provide)
-You can blend multiple data sources; start with **one firmographic + one intent** provider.
+You can blend multiple data sources; start with **one firmographic + one intent** provider.  
+**Enrichment is optional and post‑MVP**: only call a provider if the user explicitly selects a source.  
+MVP assumes enriched fields are already present from CRM/CSV or another system.
 
 | Source | Data types | Notes |
 |---|---|---|
@@ -48,7 +50,7 @@ You can blend multiple data sources; start with **one firmographic + one intent*
 
 ---
 
-## 5) Lead scoring metrics and current numbers (industry norms)
+## 5) Lead scoring metrics and evaluation (industry norms + quality KPIs)
 **Typical model structure:**  
 **Fit (explicit) + Engagement (implicit) + Intent + Relationship signals**
 
@@ -63,6 +65,19 @@ You can blend multiple data sources; start with **one firmographic + one intent*
 - Many systems use **1–100** lead scores; enterprise tiers often allow **1–500** for granularity【https://knowledge.hubspot.com/scoring/understand-the-lead-scoring-tool】.
 - **MQL thresholds commonly fall in the 50–80 range** on the 1–100 scale (varies by sales capacity and close rates)【https://www.xcellimark.com/blog/how-to-build-lead-scoring-in-hubspot-2025-update】.
 - Intent providers (e.g., Bombora) use **0–100 intent scores**, with **60+** as a recommended action threshold【https://customers.bombora.com/crc-brand/thresholding】.
+
+**Scoring quality evaluation (how to judge the model):**
+- **Ranking quality:** precision@K / recall@K, NDCG; top‑decile conversion lift vs baseline rules.
+- **Conversion likelihood accuracy:** ROC‑AUC / PR‑AUC; calibration (predicted vs actual conversion rate).
+- **Business impact:** MQL→SQL lift, win‑rate lift, pipeline velocity, meetings booked per rep.
+- **Operational quality:** score coverage (% of leads scored), data freshness, stability/drift by segment.
+- **Validation approach:** time‑based backtests on historical CRM outcomes + A/B tests vs legacy routing.
+
+**What competitors market themselves on:**
+- **Pipeline impact** (more qualified pipeline, higher win rates).
+- **Seller productivity** (faster prioritization, fewer wasted touches).
+- **Conversion lift** (higher MQL→SQL and SQL→Opp rates).
+- **Forecast reliability** (better prioritization → more predictable pipeline).
 
 ---
 
@@ -99,13 +114,16 @@ You can blend multiple data sources; start with **one firmographic + one intent*
 ## 8) Product scope & roadmap
 **MVP (6–10 weeks)**
 - CSV/Sheets import + basic CRM integration.
-- Enrichment: Clearbit (firmographic + contacts).
-- Basic scoring: fit + engagement + intent (rule‑based).
+- **Bring‑your‑own enrichment fields** (assume enriched data exists; no vendor calls in MVP).
+- **Graph‑propagation scoring** with conversion‑likelihood classification.
 - **Graph view** of accounts and related leads.
+- **Outreach order** view (ranked lead/sequence list).
 - Scoring explanation panel (“why this lead is top 5”).
+- **User‑triggered re‑score** when new CRM outreach updates are available.
 
 **V1 (3–6 months)**
 - Multiple integrations (Salesforce + HubSpot + Segment).
+- **Optional enrichment providers** (user‑selected; usage‑metered).
 - Intent provider (Bombora) + technographic (BuiltWith).
 - ML‑assisted scoring with score decay.
 - Alerting + routing (Slack/CRM task creation).
@@ -122,9 +140,9 @@ Assuming lead data arrives from integrations, the product can be structured arou
 
 1. **Ingestion Agent** – pulls data from CRM/MA, dedupes, normalizes fields.
 2. **Identity Resolution Agent** – merges contacts/companies (email + domain + fuzzy matching).
-3. **Enrichment Agent** – calls Clearbit/ZoomInfo/BuiltWith/Bombora.
+3. **Enrichment Agent (optional, post‑MVP)** – calls Clearbit/ZoomInfo/BuiltWith/Bombora only when selected.
 4. **Graph Builder Agent** – updates relationship graph (people↔company↔intent↔events).
-5. **Scoring Agent** – computes fit + engagement + intent + graph‑centrality scores.
+5. **Scoring Agent** – graph‑propagation scoring + conversion‑likelihood classification; supports on‑demand re‑scores.
 6. **Explanation Agent** – creates “why this score” summaries.
 7. **Routing Agent** – assigns leads to owners/queues, creates CRM tasks.
 8. **Monitoring/QA Agent** – checks data freshness, anomaly detection, model drift.
@@ -136,7 +154,7 @@ Assuming lead data arrives from integrations, the product can be structured arou
 - **Feature store** for scoring inputs.
 - **Graph database** (Neo4j, Neptune, or Postgres + graph layer).
 - **Vector store** for semantic similarity (lead persona embeddings).
-- **Scoring service** (rule + ML + decay + intent scaling).
+- **Scoring service** (graph propagation + conversion classifier + decay + intent scaling).
 - **Workflow orchestration** (temporal / celery / dagster).
 - **Explainability layer** (traceable feature contributions).
 - **Audit logging + RBAC** (enterprise readiness).

@@ -14,3 +14,4 @@ hdbscan
 numpy
 scikit-learn
 python-multipart
+razorpay

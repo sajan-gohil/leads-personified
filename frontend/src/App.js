@@ -12,20 +12,46 @@ import { useMemo } from 'react';
 // Backend URL can be set via environment variable or defaults to localhost
 // Load .env
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
+const RAZORPAY_KEY_ID = process.env.REACT_APP_RAZORPAY_KEY_ID;
 console.log('Using backend URL:', BACKEND_URL);
 const STATUS_OPTIONS = ['unchecked', 'converted', 'failed', 'in-progress'];
 
-function WorkorderList({ onUpload, workorders, error, onWorkorderClick, uploading, showUpload, setShowUpload, selectedFile, setSelectedFile, handleUpload }) {
+const PLAN_AMOUNT = 49900;
+const PLAN_CURRENCY = 'INR';
+
+function loadRazorpayScript() {
+  return new Promise((resolve) => {
+    if (document.querySelector('script[src="https://checkout.razorpay.com/v1/checkout.js"]')) {
+      resolve(true);
+      return;
+    }
+    const script = document.createElement('script');
+    script.src = 'https://checkout.razorpay.com/v1/checkout.js';
+    script.onload = () => resolve(true);
+    script.onerror = () => resolve(false);
+    document.body.appendChild(script);
+  });
+}
+
+function WorkorderList({ workorders, error, onWorkorderClick, uploading, showUpload, setShowUpload, selectedFile, setSelectedFile, handleUpload, onBillingClick }) {
   return (
     <div style={{ background: '#fff', minHeight: '100vh', fontFamily: 'Inter, Arial, sans-serif' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '2rem 2rem 1rem 2rem', borderBottom: '1px solid #eee' }}>
         <h2 style={{ margin: 0, fontWeight: 600, fontSize: '2rem', color: '#222' }}>Workorders</h2>
-        <button
-          onClick={() => setShowUpload(true)}
-          style={{ padding: '0.6rem 1.2rem', background: '#2563eb', color: '#fff', border: 'none', borderRadius: '5px', fontWeight: 500, fontSize: '1rem', cursor: 'pointer', boxShadow: '0 1px 4px rgba(0,0,0,0.04)' }}
-        >
-          + Create Workorder
-        </button>
+        <div style={{ display: 'flex', gap: '0.5rem' }}>
+          <button
+            onClick={onBillingClick}
+            style={{ padding: '0.6rem 1.2rem', background: '#f3f4f6', color: '#111827', border: '1px solid #e5e7eb', borderRadius: '5px', fontWeight: 500, fontSize: '1rem', cursor: 'pointer' }}
+          >
+            Billing
+          </button>
+          <button
+            onClick={() => setShowUpload(true)}
+            style={{ padding: '0.6rem 1.2rem', background: '#2563eb', color: '#fff', border: 'none', borderRadius: '5px', fontWeight: 500, fontSize: '1rem', cursor: 'pointer', boxShadow: '0 1px 4px rgba(0,0,0,0.04)' }}
+          >
+            + Create Workorder
+          </button>
+        </div>
       </div>
       <div style={{ maxWidth: 900, margin: '2rem auto', background: '#fff', borderRadius: 8, boxShadow: '0 2px 8px rgba(0,0,0,0.03)', padding: '2rem' }}>
         {error && <div style={{ color: 'red', marginBottom: '1rem' }}>{error}</div>}
@@ -359,6 +385,129 @@ function WorkorderDetail() {
   );
 }
 
+function Billing() {
+  const navigate = useNavigate();
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const [success, setSuccess] = useState(null);
+
+  const handlePayment = async () => {
+    setLoading(true);
+    setError(null);
+    setSuccess(null);
+
+    const loaded = await loadRazorpayScript();
+    if (!loaded) {
+      setError('Failed to load Razorpay checkout.');
+      setLoading(false);
+      return;
+    }
+
+    try {
+      const response = await fetch(`${BACKEND_URL}/payments/razorpay/order`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          amount: PLAN_AMOUNT,
+          currency: PLAN_CURRENCY,
+          receipt: 'lp_pro_plan',
+          notes: { plan: 'pro' },
+        }),
+      });
+
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.detail || 'Unable to create Razorpay order.');
+      }
+
+      const order = await response.json();
+      const options = {
+        key: order.key_id || RAZORPAY_KEY_ID,
+        amount: order.amount,
+        currency: order.currency,
+        name: 'Leads Personified',
+        description: 'Pro plan subscription',
+        order_id: order.order_id,
+        handler: async (paymentResponse) => {
+          try {
+            const verifyResponse = await fetch(`${BACKEND_URL}/payments/razorpay/verify`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                order_id: paymentResponse.razorpay_order_id,
+                payment_id: paymentResponse.razorpay_payment_id,
+                signature: paymentResponse.razorpay_signature,
+              }),
+            });
+
+            if (!verifyResponse.ok) {
+              throw new Error('Payment verification failed.');
+            }
+
+            setSuccess('Payment verified successfully.');
+          } catch (err) {
+            setError(err.message || 'Payment verification failed.');
+          } finally {
+            setLoading(false);
+          }
+        },
+        modal: {
+          ondismiss: () => setLoading(false),
+        },
+        theme: {
+          color: '#2563eb',
+        },
+      };
+
+      if (!options.key) {
+        setError('Razorpay key ID is missing.');
+        setLoading(false);
+        return;
+      }
+
+      const razorpay = new window.Razorpay(options);
+      razorpay.on('payment.failed', () => {
+        setError('Payment failed. Please try again.');
+        setLoading(false);
+      });
+      razorpay.open();
+    } catch (err) {
+      setError(err.message || 'Unable to start payment.');
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div style={{ background: '#fff', minHeight: '100vh', fontFamily: 'Inter, Arial, sans-serif' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '2rem 2rem 1rem 2rem', borderBottom: '1px solid #eee' }}>
+        <h2 style={{ margin: 0, fontWeight: 600, fontSize: '2rem', color: '#222' }}>Billing</h2>
+        <button
+          onClick={() => navigate('/')}
+          style={{ padding: '0.5rem 1.1rem', background: '#f3f4f6', color: '#222', border: 'none', borderRadius: '4px', fontWeight: 500, cursor: 'pointer' }}
+        >
+          Back to Workorders
+        </button>
+      </div>
+      <div style={{ maxWidth: 640, margin: '2rem auto', background: '#fff', borderRadius: 8, boxShadow: '0 2px 8px rgba(0,0,0,0.03)', padding: '2rem' }}>
+        <h3 style={{ marginTop: 0, color: '#111827', fontWeight: 600 }}>Pro plan</h3>
+        <p style={{ color: '#4b5563', marginBottom: '1.5rem' }}>
+          Unlock advanced lead scoring, enrichment workflows, and premium support.
+        </p>
+        <div style={{ fontSize: '1.5rem', fontWeight: 600, color: '#111827', marginBottom: '1.5rem' }}>₹499 / month</div>
+        <button
+          onClick={handlePayment}
+          disabled={loading}
+          style={{ padding: '0.6rem 1.6rem', background: '#2563eb', color: '#fff', border: 'none', borderRadius: '5px', fontWeight: 600, fontSize: '1rem', cursor: 'pointer' }}
+        >
+          {loading ? 'Starting checkout...' : 'Pay with Razorpay'}
+        </button>
+        {error && <div style={{ color: '#b91c1c', marginTop: '1rem' }}>{error}</div>}
+        {success && <div style={{ color: '#059669', marginTop: '1rem' }}>{success}</div>}
+      </div>
+    </div>
+  );
+}
+
 function App() {
   const [workorders, setWorkorders] = useState([]);
   const [selectedFile, setSelectedFile] = useState(null);
@@ -381,6 +530,10 @@ function App() {
 
   const handleWorkorderClick = (id) => {
     navigate(`/workorder/${id}`);
+  };
+
+  const handleBillingClick = () => {
+    navigate('/billing');
   };
 
   const handleUpload = async () => {
@@ -419,7 +572,6 @@ function App() {
         path="/"
         element={
           <WorkorderList
-            onUpload={handleUpload}
             workorders={workorders}
             error={error}
             onWorkorderClick={handleWorkorderClick}
@@ -429,10 +581,12 @@ function App() {
             selectedFile={selectedFile}
             setSelectedFile={setSelectedFile}
             handleUpload={handleUpload}
+            onBillingClick={handleBillingClick}
           />
         }
       />
       <Route path="/workorder/:id" element={<WorkorderDetail />} />
+      <Route path="/billing" element={<Billing />} />
     </Routes>
   );
 }

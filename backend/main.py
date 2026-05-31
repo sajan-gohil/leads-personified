@@ -9,13 +9,21 @@ import pandas as pd
 import array
 from sqlalchemy.exc import SQLAlchemyError
 from fastapi.responses import JSONResponse
-from typing import List
+from typing import List, Optional, Dict
 from app.services.lead_processing import process_lead, cluster_lead_embeddings
 import math
 import numpy as np
+import razorpay
+from dotenv import load_dotenv
+from pydantic import BaseModel
+from uuid import uuid4
+
+load_dotenv()
 
 DATABASE_URL = 'sqlite:///./workorders.db'
 UPLOAD_DIR = './uploaded_files'
+RAZORPAY_KEY_ID = os.getenv("RAZORPAY_KEY_ID")
+RAZORPAY_KEY_SECRET = os.getenv("RAZORPAY_KEY_SECRET")
 
 if not os.path.exists(UPLOAD_DIR):
     os.makedirs(UPLOAD_DIR)
@@ -35,6 +43,24 @@ app.add_middleware(
     expose_headers=["*"]
 )
 
+class RazorpayOrderRequest(BaseModel):
+    amount: int
+    currency: str = "INR"
+    receipt: Optional[str] = None
+    notes: Optional[Dict[str, str]] = None
+
+
+class RazorpayVerifyRequest(BaseModel):
+    order_id: str
+    payment_id: str
+    signature: str
+
+
+def get_razorpay_client():
+    if not RAZORPAY_KEY_ID or not RAZORPAY_KEY_SECRET:
+        raise HTTPException(status_code=500, detail="Razorpay credentials are not configured")
+    return razorpay.Client(auth=(RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET))
+
 @app.get("/")
 def root():
     return {"message": "Leads Personified API is running", "status": "healthy"}
@@ -50,6 +76,43 @@ def upload_options():
 @app.options("/workorders/{workorder_id}")
 def workorder_options():
     return {"message": "OK"}
+
+
+@app.post("/payments/razorpay/order")
+def create_razorpay_order(order_request: RazorpayOrderRequest):
+    client = get_razorpay_client()
+    receipt = order_request.receipt or f"receipt_{uuid4().hex}"
+    order = client.order.create(
+        data={
+            "amount": order_request.amount,
+            "currency": order_request.currency,
+            "receipt": receipt,
+            "payment_capture": 1,
+            "notes": order_request.notes or {},
+        }
+    )
+    return {
+        "order_id": order["id"],
+        "amount": order["amount"],
+        "currency": order["currency"],
+        "receipt": order.get("receipt"),
+        "key_id": RAZORPAY_KEY_ID,
+    }
+
+
+@app.post("/payments/razorpay/verify")
+def verify_razorpay_payment(verify_request: RazorpayVerifyRequest):
+    client = get_razorpay_client()
+    params = {
+        "razorpay_order_id": verify_request.order_id,
+        "razorpay_payment_id": verify_request.payment_id,
+        "razorpay_signature": verify_request.signature,
+    }
+    try:
+        client.utility.verify_payment_signature(params)
+    except razorpay.errors.SignatureVerificationError:
+        raise HTTPException(status_code=400, detail="Invalid payment signature")
+    return {"status": "verified"}
 
 
 @app.get("/workorders")
